@@ -50,8 +50,11 @@
 #define RESCOUSE_FIRST   1
 #define RESCOUSE_SECOND  2
 #define RESCOUSE_THIRD   3
+#define RESCOUSE_FOURTH  4
 #define ELF_BDF_FILE_NAME_SEC         "bdwlansec.elf"
 #define ELF_BDF_FILE_NAME_GF_SEC      "bdwlangsec.elf"
+#define ELF_BDF_FILE_NAME_SEC_SAR     "bdwlansecsar.elf"
+#define ELF_BDF_FILE_NAME_GF_SEC_SAR  "bdwlangsecsar.elf"
 #endif /* OPLUS_FEATURE_WIFI_BDF */
 
 #define CONN_ROAM_FILE_NAME		"wlan-connection-roaming"
@@ -693,6 +696,9 @@ static void cnss_get_oplus_bdf_file_name(struct cnss_plat_data *plat_priv, char*
 			        || (is_udon_export_prj_need_second_rescouse() && RESCOUSE_THIRD == get_Modem_Version())) {
 			cnss_pr_dbg("RF id: %d", get_Modem_Version());
 			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME_GF_SEC);
+		} else if (is_udon_internal_prj_need_second_rescouse() && RESCOUSE_FOURTH == get_Modem_Version()) {
+			cnss_pr_dbg("RF id: %d", get_Modem_Version());
+			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME_GF_SEC_SAR);
 		} else {
 			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME_GF);
 		}
@@ -711,6 +717,9 @@ static void cnss_get_oplus_bdf_file_name(struct cnss_plat_data *plat_priv, char*
 			        || (is_udon_export_prj_need_second_rescouse() && RESCOUSE_THIRD == get_Modem_Version())) {
 			cnss_pr_dbg("RF id: %d", get_Modem_Version());
 			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME_SEC);
+		} else if (is_udon_internal_prj_need_second_rescouse() && RESCOUSE_FOURTH == get_Modem_Version()) {
+			cnss_pr_dbg("RF id: %d", get_Modem_Version());
+			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME_SEC_SAR);
 		} else {
 			snprintf(file_name, filename_len, ELF_BDF_FILE_NAME);
 		}
