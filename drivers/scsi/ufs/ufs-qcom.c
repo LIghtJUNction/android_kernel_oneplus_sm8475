@@ -2295,38 +2295,36 @@ out:
 	return ret;
 }
 
-static void ufs_qcom_override_pa_tx_hsg1_sync_len(struct ufs_hba *hba)
+static void ufs_qcom_override_pa_tx_hs_sync_len(struct ufs_hba *hba,
+		unsigned short offset, int sync_len)
 {
-//modify G1  tx sync len to 4f
-#define PA_TX_HSG1_SYNC_LENGTH 0x1552
-#define PA_TX_HSG4_SYNC_LENGTH 0x15D0
 	int err;
-	int sync_len_val = 0x4F;
 
-	err = ufshcd_dme_peer_set(hba, UIC_ARG_MIB(PA_TX_HSG1_SYNC_LENGTH),
-				sync_len_val);
+	err = ufshcd_dme_peer_set(hba, UIC_ARG_MIB(offset), sync_len);
 
 	if (err)
-		dev_err(hba->dev, "Failed (%d) set PA_TX_HSG1_SYNC_LENGTH(%d)\n",
-				err, sync_len_val);
+		dev_err(hba->dev, "Failed (%d) set offset 0x%x = (%d)\n",
+				err, offset, sync_len);
 
-	sync_len_val = 0;
-	err = ufshcd_dme_peer_get(hba, UIC_ARG_MIB(PA_TX_HSG1_SYNC_LENGTH),
-				&sync_len_val);
+	sync_len = 0;
+	err = ufshcd_dme_peer_get(hba, UIC_ARG_MIB(offset), &sync_len);
 
 	if (err)
-		dev_err(hba->dev, "Failed get PA_TX_HSG1_SYNC_LENGTH(%x)\n",
-				sync_len_val);
+		dev_err(hba->dev, "Failed get offset(%x)\n", offset);
 
-	printk("SAMSUNG Solvit UFS: set PA_TX_HSG1_SYNC_LENGTH to 0x%x \n", sync_len_val);
+	/*
+	printk("SAMSUNG Solvit UFS: set offset 0x%x = (%d)\n", offset, sync_len);
 	if (hba->dev_info.model) {
 		printk("SAMSUNG Solvit UFS: model=%s\n", hba->dev_info.model);
 	}
-	return;
+	*/
 }
 
 static int ufs_qcom_apply_dev_quirks(struct ufs_hba *hba)
 {
+//modify G1&G4 tx sync len to 4f
+#define PA_TX_HSG1_SYNC_LENGTH 0x1552
+#define PA_TX_HSG4_SYNC_LENGTH 0x15D0
 	unsigned long flags;
 	int err = 0;
 
@@ -2349,10 +2347,21 @@ static int ufs_qcom_apply_dev_quirks(struct ufs_hba *hba)
 	if (hba->dev_quirks & UFS_DEVICE_QUIRK_PA_HIBER8TIME)
 		ufs_qcom_override_pa_h8time(hba);
 
+//#ifdef FIX_SAMSUNG_Solvit-FCx_PROTECTION_TIMER_EXPIRED
 	if (hba->dev_quirks & UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH)
-		ufs_qcom_override_pa_tx_hsg1_sync_len(hba);
+		ufs_qcom_override_pa_tx_hs_sync_len(hba, PA_TX_HSG1_SYNC_LENGTH, 0x4F);
+
+	if (hba->dev_quirks & UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH)
+		ufs_qcom_override_pa_tx_hs_sync_len(hba, PA_TX_HSG4_SYNC_LENGTH, 0x4F);
+//#endif
 
 	ufshcd_parse_pm_levels(hba);
+
+	/* the v7 need to keep vcc on for stability */
+	if (hba->dev_quirks & UFS_DEVICE_QUIRK_KEEP_VCC_ON) {
+		hba->rpm_lvl = 1;
+		hba->spm_lvl = 1;
+	}
 
 	if (hba->dev_info.wmanufacturerid == UFS_VENDOR_MICRON)
 		hba->dev_quirks |= UFS_DEVICE_QUIRK_DELAY_BEFORE_LPM;
@@ -3644,37 +3653,6 @@ static void ufshcd_transmission_status_init_sysfs(struct ufs_hba *hba)
 
 //#ifdef OPLUS_UFS_SIGNAL_QUALITY
 /*feature-flashaging806-v001-2-begin*/
-static void recordTimeStamp(
-	struct signal_quality *record,
-	enum ufs_event_type type
-) {
-	ktime_t cur_time = ktime_get();
-	switch (type)
-	{
-	case UFS_EVT_PA_ERR:
-	case UFS_EVT_DL_ERR:
-	case UFS_EVT_NL_ERR:
-	case UFS_EVT_TL_ERR:
-	case UFS_EVT_DME_ERR:
-		if (STAMP_RECORD_MAX <= record->stamp_pos)
-			return;
-		if (0 == record->stamp_pos) {
-			record->stamp[0] = cur_time;
-			record->hs[0] = debug_hba->pwr_info.pwr_tx;
-			record->gear[record->stamp_pos++] = debug_hba->pwr_info.gear_tx;
-		}
-		else if (cur_time > (record->stamp[record->stamp_pos - 1] +
-				STAMP_MIN_INTERVAL)) {
-			record->stamp[record->stamp_pos] = cur_time;
-			record->hs[record->stamp_pos] = debug_hba->pwr_info.pwr_tx;
-			record->gear[record->stamp_pos++] = debug_hba->pwr_info.gear_tx;
-		}
-		return;
-	default:
-		return;
-	}
-}
-
 void recordUniproErr(
 	struct unipro_signal_quality_ctrl *signalCtrl,
 	u32 reg,
@@ -3683,7 +3661,6 @@ void recordUniproErr(
 	unsigned long err_bits;
 	int ec;
 	struct signal_quality *rec = &signalCtrl->record;
-	recordTimeStamp(rec, type);
 	switch (type)
 	{
 	case UFS_EVT_FATAL_ERR:
@@ -3751,10 +3728,8 @@ void recordUniproErr(
 	seq_printf(s, #x"\t%d\n", signalCtrl->record.unipro_TL_err_cnt[x])
 #define SEQ_DME_PRINT(x)    \
 	seq_printf(s, #x"\t%d\n", signalCtrl->record.unipro_DME_err_cnt[x])
-#define SEQ_STAMP_PRINT(x)  \
-	seq_printf(s, #x"\t%lld\n", signalCtrl->record.stamp[x])
 #define SEQ_GEAR_PRINT(x)  \
-	seq_printf(s, #x"\t%d %d\n", signalCtrl->record.hs[x], signalCtrl->record.gear[x])
+	seq_printf(s, #x"\t%d\n", signalCtrl->record.gear_err_cnt[x])
 
 static int record_read_func(struct seq_file *s, void *v)
 {
@@ -3807,26 +3782,10 @@ static int record_read_func(struct seq_file *s, void *v)
 	SEQ_DME_PRINT(UNIPRO_DME_TX_QOS);
 	SEQ_DME_PRINT(UNIPRO_DME_RX_QOS);
 	SEQ_DME_PRINT(UNIPRO_DME_PA_INIT_QOS);
-	SEQ_STAMP_PRINT(UNIPRO_0_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_1_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_2_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_3_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_4_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_5_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_6_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_7_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_8_STAMP);
-	SEQ_STAMP_PRINT(UNIPRO_9_STAMP);
-	SEQ_GEAR_PRINT(UNIPRO_0_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_1_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_2_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_3_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_4_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_5_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_6_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_7_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_8_GEAR);
-	SEQ_GEAR_PRINT(UNIPRO_9_GEAR);
+	SEQ_GEAR_PRINT(UFS_HS_G1);
+	SEQ_GEAR_PRINT(UFS_HS_G2);
+	SEQ_GEAR_PRINT(UFS_HS_G3);
+	SEQ_GEAR_PRINT(UFS_HS_G4);
 	return 0;
 }
 
@@ -3842,13 +3801,38 @@ static const struct proc_ops record_fops = {
 };
 
 #define SEQ_UPLOAD_PRINT(x) \
-	seq_printf(s, #x": %d\n", signalCtrl->record.x \
-		-signalCtrl->record_upload.x);\
-	signalCtrl->record_upload.x = signalCtrl->record.x;
-#define SEQ_UPLOAD_STAMP_PRINT(x) \
-	seq_printf(s, #x": %lld\n", signalCtrl->record.stamp[x] \
-		-signalCtrl->record_upload.stamp[x]);\
-	signalCtrl->record_upload.stamp[x] = signalCtrl->record.stamp[x];
+		seq_printf(s, #x": %d\n", signalCtrl->record.x \
+			-signalCtrl->record_upload.x);\
+		signalCtrl->record_upload.x = signalCtrl->record.x;
+#define SEQ_PA_UPLOAD_PRINT(x) \
+		seq_printf(s, #x": %d\n", signalCtrl->record.unipro_PA_err_cnt[x] \
+			-signalCtrl->record_upload.unipro_PA_err_cnt[x]);\
+		signalCtrl->record_upload.unipro_PA_err_cnt[x] = signalCtrl->record.unipro_PA_err_cnt[x];
+#define SEQ_DL_UPLOAD_PRINT(x) \
+			seq_printf(s, #x": %d\n", signalCtrl->record.unipro_DL_err_cnt[x] \
+				-signalCtrl->record_upload.unipro_DL_err_cnt[x]);\
+			signalCtrl->record_upload.unipro_DL_err_cnt[x] = signalCtrl->record.unipro_DL_err_cnt[x];
+#define SEQ_DL_UPLOAD_PRINT(x) \
+				seq_printf(s, #x": %d\n", signalCtrl->record.unipro_DL_err_cnt[x] \
+					-signalCtrl->record_upload.unipro_DL_err_cnt[x]);\
+				signalCtrl->record_upload.unipro_DL_err_cnt[x] = signalCtrl->record.unipro_DL_err_cnt[x];
+#define SEQ_NL_UPLOAD_PRINT(x) \
+					seq_printf(s, #x": %d\n", signalCtrl->record.unipro_NL_err_cnt[x] \
+						-signalCtrl->record_upload.unipro_NL_err_cnt[x]);\
+					signalCtrl->record_upload.unipro_NL_err_cnt[x] = signalCtrl->record.unipro_NL_err_cnt[x];
+#define SEQ_TL_UPLOAD_PRINT(x) \
+						seq_printf(s, #x": %d\n", signalCtrl->record.unipro_TL_err_cnt[x] \
+							-signalCtrl->record_upload.unipro_TL_err_cnt[x]);\
+						signalCtrl->record_upload.unipro_TL_err_cnt[x] = signalCtrl->record.unipro_TL_err_cnt[x];
+#define SEQ_DME_UPLOAD_PRINT(x) \
+							seq_printf(s, #x": %d\n", signalCtrl->record.unipro_DME_err_cnt[x] \
+								-signalCtrl->record_upload.unipro_DME_err_cnt[x]);\
+							signalCtrl->record_upload.unipro_DME_err_cnt[x] = signalCtrl->record.unipro_DME_err_cnt[x];
+#define SEQ_GEAR_UPLOAD_PRINT(x) \
+							seq_printf(s, #x": %d\n", signalCtrl->record.gear_err_cnt[x] \
+								-signalCtrl->record_upload.gear_err_cnt[x]);\
+							signalCtrl->record_upload.gear_err_cnt[x] = signalCtrl->record.gear_err_cnt[x];
+
 static int record_upload_read_func(struct seq_file *s, void *v)
 {
 	struct unipro_signal_quality_ctrl *signalCtrl =
@@ -3865,7 +3849,51 @@ static int record_upload_read_func(struct seq_file *s, void *v)
 	SEQ_UPLOAD_PRINT(unipro_NL_err_total_cnt);
 	SEQ_UPLOAD_PRINT(unipro_TL_err_total_cnt);
 	SEQ_UPLOAD_PRINT(unipro_DME_err_total_cnt);
-	SEQ_UPLOAD_STAMP_PRINT(UNIPRO_0_STAMP);
+
+	SEQ_PA_UPLOAD_PRINT(UNIPRO_PA_LANE0_ERR_CNT);
+	SEQ_PA_UPLOAD_PRINT(UNIPRO_PA_LANE1_ERR_CNT);
+	SEQ_PA_UPLOAD_PRINT(UNIPRO_PA_LANE2_ERR_CNT);
+	SEQ_PA_UPLOAD_PRINT(UNIPRO_PA_LANE3_ERR_CNT);
+	SEQ_PA_UPLOAD_PRINT(UNIPRO_PA_LINE_RESET);
+
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_NAC_RECEIVED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_TCX_REPLAY_TIMER_EXPIRED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_AFCX_REQUEST_TIMER_EXPIRED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_FCX_PROTECTION_TIMER_EXPIRED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_CRC_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_RX_BUFFER_OVERFLOW);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_MAX_FRAME_LENGTH_EXCEEDED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_WRONG_SEQUENCE_NUMBER);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_AFC_FRAME_SYNTAX_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_NAC_FRAME_SYNTAX_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_EOF_SYNTAX_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_FRAME_SYNTAX_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_BAD_CTRL_SYMBOL_TYPE);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_PA_INIT_ERROR);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_PA_ERROR_IND_RECEIVED);
+	SEQ_DL_UPLOAD_PRINT(UNIPRO_DL_PA_INIT);
+
+	SEQ_NL_UPLOAD_PRINT(UNIPRO_NL_UNSUPPORTED_HEADER_TYPE);
+	SEQ_NL_UPLOAD_PRINT(UNIPRO_NL_BAD_DEVICEID_ENC);
+	SEQ_NL_UPLOAD_PRINT(UNIPRO_NL_LHDR_TRAP_PACKET_DROPPING);
+
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_UNSUPPORTED_HEADER_TYPE);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_UNKNOWN_CPORTID);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_NO_CONNECTION_RX);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_CONTROLLED_SEGMENT_DROPPING);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_BAD_TC);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_E2E_CREDIT_OVERFLOW);
+	SEQ_TL_UPLOAD_PRINT(UNIPRO_TL_SAFETY_VALVE_DROPPING);
+
+	SEQ_DME_UPLOAD_PRINT(UNIPRO_DME_GENERIC);
+	SEQ_DME_UPLOAD_PRINT(UNIPRO_DME_TX_QOS);
+	SEQ_DME_UPLOAD_PRINT(UNIPRO_DME_RX_QOS);
+	SEQ_DME_UPLOAD_PRINT(UNIPRO_DME_PA_INIT_QOS);
+
+	SEQ_GEAR_UPLOAD_PRINT(UFS_HS_G1);
+	SEQ_GEAR_UPLOAD_PRINT(UFS_HS_G2);
+	SEQ_GEAR_UPLOAD_PRINT(UFS_HS_G3);
+	SEQ_GEAR_UPLOAD_PRINT(UFS_HS_G4);
 	return 0;
 }
 
@@ -5195,21 +5223,32 @@ static struct ufs_dev_fix ufs_qcom_dev_fixups[] = {
 		UFS_DEVICE_QUIRK_HOST_PA_TACTIVATE),
 //#ifdef FIX_SAMSUNG_Solvit-FCx_PROTECTION_TIMER_EXPIRED
 	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUEG4RHGB-B0E1",
-		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH),
+		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
+		UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH),
 	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUFG8RHGB-B0E1",
-		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH),
+		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
+		UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH),
 	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUGGARHGB-B0E1",
-		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH),
+		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
+		UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH),
+	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUFG4LHGC-B0E1",
+		UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
+		UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH),
 //#endif
 //#ifdef SAMSUNG_QLC
 	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUFG4LHGC-B0E1",
 		UFS_DEVICE_QUIRK_SAMSUNG_QLC),
+	UFS_FIX(UFS_VENDOR_SAMSUNG, "KLUFG4LHGC-B0E1",
+		UFS_DEVICE_QUIRK_KEEP_VCC_ON),
 //#endif
 	END_FIX
 };
 
 static void ufs_qcom_fixup_dev_quirks(struct ufs_hba *hba)
 {
+	struct ufs_dev_info *dev_info = &hba->dev_info;
+	dev_info->hpb_enabled = false;
+
 	ufshcd_fixup_dev_quirks(hba, ufs_qcom_dev_fixups);
 
 	/* Register hook for samsung feature */
@@ -5222,6 +5261,17 @@ static void ufs_qcom_fixup_dev_quirks(struct ufs_hba *hba)
 	}
 }
 /*feature-flashaging806-v001-4-begin*/
+void recordGearErr(struct unipro_signal_quality_ctrl *signalCtrl, struct ufs_hba *hba)
+{
+	struct ufs_pa_layer_attr *pwr_info = &hba->pwr_info;
+	u32 dev_gear = min_t(u32, pwr_info->gear_rx, pwr_info->gear_tx);
+
+	if (dev_gear > UFS_HS_G4)
+		return;
+
+	signalCtrl->record.gear_err_cnt[dev_gear]++;
+}
+
 static void ufs_qcom_event_notify(struct ufs_hba *hba,
 	enum ufs_event_type evt, void *data)
 {
@@ -5237,6 +5287,7 @@ static void ufs_qcom_event_notify(struct ufs_hba *hba,
 
 	reg = *(u32 *)data;
 	recordUniproErr(&signalCtrl, reg, evt);
+	recordGearErr(&signalCtrl, hba);
 }
 /*feature-flashaging806-v001-4-end*/
 /*
@@ -5953,7 +6004,7 @@ static void ufs_qcom_shutdown(struct platform_device *pdev)
 #if defined(CONFIG_UFSFEATURE)
 	if (hba->dev_quirks & UFS_DEVICE_QUIRK_SAMSUNG_QLC) {
 		ufsf = ufs_qcom_get_ufsf(hba);
-		ufsf_suspend(ufsf);
+		ufsf_suspend(ufsf, false);
 	}
 #endif
 
@@ -5979,7 +6030,7 @@ int ufsf_pltfrm_suspend(struct device *dev)
 	struct ufs_hba *hba = dev_get_drvdata(dev);
 	struct ufsf_feature *ufsf = ufs_qcom_get_ufsf(hba);
 
-	ufsf_suspend(ufsf);
+	ufsf_suspend(ufsf, true);
 #endif
 
 	ret = ufshcd_pltfrm_suspend(dev);
@@ -6021,7 +6072,7 @@ int ufsf_pltfrm_runtime_suspend(struct device *dev)
 
 	if (hba->dev_quirks & UFS_DEVICE_QUIRK_SAMSUNG_QLC) {
 		ufsf = ufs_qcom_get_ufsf(hba);
-		ufsf_suspend(ufsf);
+		ufsf_suspend(ufsf, false);
 	}
 #endif
 

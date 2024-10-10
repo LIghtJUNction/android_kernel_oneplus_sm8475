@@ -114,7 +114,7 @@ static inline int ufshid_version_check(int spec_version)
 
 	if (spec_version != UFSHID_VER) {
 		ERR_MSG("UFS HID version mismatched");
-		return -ENODEV;
+		return 0;
 	}
 	return 0;
 }
@@ -883,17 +883,23 @@ void ufshid_remove(struct ufsf_feature *ufsf)
 	INFO_MSG("end HID release");
 }
 
-void ufshid_suspend(struct ufsf_feature *ufsf)
+void ufshid_suspend(struct ufsf_feature *ufsf, bool is_system_pm)
 {
 	struct ufshid_dev *hid = ufsf->hid_dev;
+	int ret;
 
 	if (!hid)
 		return;
 
-	if (unlikely(hid->hid_trigger))
+	if (is_system_pm) {
+		ret = ufshid_trigger_off(hid);
+		if (unlikely(ret))
+			ERR_MSG("trigger off fail ret (%d)", ret);
+	} else if (unlikely(hid->hid_trigger)) {
 		ERR_MSG("hid_trigger was set to block the suspend. so weird");
-	ufshid_set_state(ufsf, HID_SUSPEND);
+	}
 
+	ufshid_set_state(ufsf, HID_SUSPEND);
 	cancel_delayed_work_sync(&hid->hid_trigger_work);
 }
 

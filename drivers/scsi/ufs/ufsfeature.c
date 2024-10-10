@@ -683,7 +683,7 @@ inline void ufsf_set_init_state(struct ufs_hba *hba)
 #endif
 }
 
-inline void ufsf_suspend(struct ufsf_feature *ufsf)
+inline void ufsf_suspend(struct ufsf_feature *ufsf, bool is_system_pm)
 {
 	/*
 	 * Wait completion of reset_wait_work.
@@ -700,7 +700,7 @@ inline void ufsf_suspend(struct ufsf_feature *ufsf)
 #endif
 #if defined(CONFIG_UFSHID)
 	if (ufshid_get_state(ufsf) == HID_PRESENT)
-		ufshid_suspend(ufsf);
+		ufshid_suspend(ufsf, is_system_pm);
 #endif
 }
 

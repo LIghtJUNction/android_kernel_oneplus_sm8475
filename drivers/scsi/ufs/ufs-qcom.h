@@ -266,11 +266,7 @@ struct signal_quality {
 	u32 unipro_TL_err_cnt[UNIPRO_TL_ERR_MAX];
 	u32 unipro_DME_err_total_cnt;
 	u32 unipro_DME_err_cnt[UNIPRO_DME_ERR_MAX];
-	/* first 10 error cnt, interval is 10min at least*/
-	u32 hs[STAMP_RECORD_MAX];
-	u32 gear[STAMP_RECORD_MAX];
-	ktime_t stamp[STAMP_RECORD_MAX];
-	int stamp_pos;
+	u32 gear_err_cnt[UFS_HS_G4 + 1];
 };
 /*feature-flashaging806-v001-2-end*/
 
@@ -360,6 +356,14 @@ enum ufs_qcom_phy_init_type {
  */
 #define UFS_DEVICE_QUIRK_SAMSUNG_QLC          (1 << 17)
 
+/*
+ * Some ufs device vendors need a different TSync length.
+ * Enable this quirk to give an additional TX_HS_SYNC_LENGTH.
+ */
+#define UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH (1 << 18)
+#define UFS_DEVICE_QUIRK_PA_TX_HSG4_SYNC_LENGTH (1 << 19)
+#define UFS_DEVICE_QUIRK_KEEP_VCC_ON (1 << 20)
+
 /*feature-devinfo-v001-1-begin*/
 struct ufs_transmission_status_t
 {
@@ -408,11 +412,6 @@ struct unipro_signal_quality_ctrl {
 };
 /*feature-flashaging806-v001-3-end*/
 
-/*
- * Some ufs device vendors need a different TSync length.
- * Enable this quirk to give an additional TX_HS_SYNC_LENGTH.
- */
-#define UFS_DEVICE_QUIRK_PA_TX_HSG1_SYNC_LENGTH (1 << 16)
 
 static inline void
 ufs_qcom_get_controller_revision(struct ufs_hba *hba,

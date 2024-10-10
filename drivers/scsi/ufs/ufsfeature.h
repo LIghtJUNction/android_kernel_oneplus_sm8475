@@ -181,7 +181,7 @@ void ufsf_init(struct ufsf_feature *ufsf);
 void ufsf_reset(struct ufsf_feature *ufsf);
 void ufsf_remove(struct ufsf_feature *ufsf);
 void ufsf_set_init_state(struct ufs_hba *hba);
-void ufsf_suspend(struct ufsf_feature *ufsf);
+void ufsf_suspend(struct ufsf_feature *ufsf, bool is_system_pm);
 void ufsf_resume(struct ufsf_feature *ufsf, bool is_link_off);
 
 /* mimic */
