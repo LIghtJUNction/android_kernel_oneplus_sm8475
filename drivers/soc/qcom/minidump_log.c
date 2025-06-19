@@ -156,6 +156,9 @@ static DEFINE_SPINLOCK(md_modules_lock);
 #endif	/* CONFIG_MODULES */
 #endif
 
+/* #ifdef OPLUS_FEATURE_DFR */
+static bool current_stack_enable = false;
+
 static int register_stack_entry(struct md_region *ksp_entry, u64 sp, u64 size)
 {
 	struct page *sp_page;
@@ -176,6 +179,7 @@ static int register_stack_entry(struct md_region *ksp_entry, u64 sp, u64 size)
 				ksp_entry->name);
 	return entry;
 }
+
 
 static void register_kernel_sections(void)
 {
@@ -256,8 +260,11 @@ void dump_stack_minidump(u64 sp)
 	struct vm_struct *stack_vm_area;
 	unsigned int i, copy_pages;
 
-	if (IS_ENABLED(CONFIG_QCOM_DYN_MINIDUMP_STACK))
+	if (current_stack_enable == true) {
+		pr_err("CONFIG_QCOM_DYN_MINIDUMP_STACK is enabled, returning.\n");
 		return;
+	}
+
 
 	if (is_idle_task(current))
 		return;
@@ -1040,6 +1047,7 @@ static void md_ipi_stop(void *unused, struct pt_regs *regs)
 	unsigned int cpu = smp_processor_id();
 
 	per_cpu(regs_before_stop, cpu) = *regs;
+	dump_stack_minidump(regs->sp);
 }
 #endif
 
@@ -1079,6 +1087,8 @@ dump_rq:
 		md_dma_buf_info(md_dma_buf_info_addr, md_dma_buf_info_size);
 	if (md_dma_buf_procs_addr)
 		md_dma_buf_procs(md_dma_buf_procs_addr, md_dma_buf_procs_size);
+	dump_stack_minidump(0);
+
 	md_in_oops_handler = false;
 	return NOTIFY_DONE;
 }
@@ -1322,8 +1332,6 @@ static void register_pstore_info(void)
 }
 #endif
 
-/* #ifdef OPLUS_FEATURE_DFR */
-static bool current_stack_enable = false;
 static void unregister_vmapped_stack(struct md_region *mdr)
 {
 	int i;
