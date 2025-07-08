@@ -2390,7 +2390,7 @@ static int haptics_load_custom_effect(struct haptics_chip *chip,
 	if (!fifo->samples) {
 #ifdef OPLUS_FEATURE_CHG_BASIC
 		dev_err(chip->dev, "failed to kcalloc memory, try vmalloc\n");
-#endif		
+#endif
 		fifo->samples = vmalloc(custom_data.length);
 		if (!fifo->samples) {
 			rc = -ENOMEM;
